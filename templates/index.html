@@ -121,6 +121,19 @@
     <!-- Source grid -->
     <div class="row g-2 mb-4" id="sourceGrid"></div>
 
+    <!-- Case type filter -->
+    <div id="caseFilter" class="d-none mb-3">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small fw-semibold text-muted me-1">Case type:</span>
+            <input type="checkbox" class="btn-check" id="cf_brass"    autocomplete="off" checked onchange="applyFilters()">
+            <label class="btn btn-sm btn-outline-secondary" for="cf_brass"    id="lBrass">Brass</label>
+            <input type="checkbox" class="btn-check" id="cf_steel"    autocomplete="off" checked onchange="applyFilters()">
+            <label class="btn btn-sm btn-outline-secondary" for="cf_steel"    id="lSteel">Steel</label>
+            <input type="checkbox" class="btn-check" id="cf_aluminum" autocomplete="off" checked onchange="applyFilters()">
+            <label class="btn btn-sm btn-outline-secondary" for="cf_aluminum" id="lAluminum">Aluminum</label>
+        </div>
+    </div>
+
     <!-- Results table -->
     <div id="resultsCard" class="d-none">
         <div class="card shadow-sm border-0">
@@ -138,6 +151,7 @@
                         <tr>
                             <th>Source</th>
                             <th>Product</th>
+                            <th>Case</th>
                             <th>Per round</th>
                             <th>Total</th>
                             <th>Shipping</th>
@@ -171,7 +185,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let pollId = null;
+let pollId   = null;
+let _allDeals = [];
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
@@ -310,22 +325,45 @@ function renderSources(st) {
 }
 
 function renderResults(st) {
+    const cf = document.getElementById("caseFilter");
+    if (!st.finished_at) {
+        document.getElementById("resultsCard").classList.add("d-none");
+        document.getElementById("noDealsCard").classList.add("d-none");
+        cf.classList.add("d-none");
+        return;
+    }
+    _allDeals = st.deals || [];
+    updateFilterCounts(_allDeals);
+    cf.classList.toggle("d-none", _allDeals.length === 0);
+    applyFilters();
+}
+
+function updateFilterCounts(deals) {
+    const counts = { brass: 0, steel: 0, aluminum: 0 };
+    deals.forEach(d => { const t = d.case_type || "brass"; if (t in counts) counts[t]++; else counts.brass++; });
+    document.getElementById("lBrass").textContent    = "Brass"    + (counts.brass    ? ` (${counts.brass})`    : "");
+    document.getElementById("lSteel").textContent    = "Steel"    + (counts.steel    ? ` (${counts.steel})`    : "");
+    document.getElementById("lAluminum").textContent = "Aluminum" + (counts.aluminum ? ` (${counts.aluminum})` : "");
+}
+
+function applyFilters() {
     const rc = document.getElementById("resultsCard");
     const nd = document.getElementById("noDealsCard");
-    if (!st.finished_at) { rc.classList.add("d-none"); nd.classList.add("d-none"); return; }
+    const active = new Set(["brass","steel","aluminum"].filter(t => document.getElementById("cf_" + t)?.checked));
+    const filtered = _allDeals.filter(d => active.has(d.case_type || "brass"));
 
-    const deals = st.deals || [];
-    if (deals.length > 0) {
+    if (filtered.length > 0) {
         rc.classList.remove("d-none");
         nd.classList.add("d-none");
-        document.getElementById("dealCount").textContent = deals.length;
-        document.getElementById("dealRows").innerHTML = deals.map(d => {
+        document.getElementById("dealCount").textContent = filtered.length;
+        document.getElementById("dealRows").innerHTML = filtered.map(d => {
             const rounds = extractRounds(d.name);
             const total  = rounds ? "$" + (rounds * d.cpr).toFixed(2) : "—";
             return `
             <tr>
                 <td><span class="badge text-bg-secondary">${esc(d.source)}</span></td>
                 <td class="small">${esc(d.name.slice(0, 72))}</td>
+                <td>${caseBadge(d.case_type || "brass")}</td>
                 <td><span class="cpr">$${d.cpr.toFixed(3)}</span></td>
                 <td class="small fw-semibold">${total}</td>
                 <td><span class="badge" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7">Free</span></td>
@@ -339,6 +377,12 @@ function renderResults(st) {
         rc.classList.add("d-none");
         nd.classList.remove("d-none");
     }
+}
+
+function caseBadge(type) {
+    const cfg = { brass: ["#b8860b","Brass"], steel: ["#78909c","Steel"], aluminum: ["#039be5","Aluminum"] };
+    const [bg, label] = cfg[type] || cfg.brass;
+    return `<span class="badge" style="background:${bg}">${label}</span>`;
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────

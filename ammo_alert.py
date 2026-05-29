@@ -82,6 +82,22 @@ def has_free_shipping(text: str) -> bool:
     return bool(re.search(r"free\s*ship", text, re.I))
 
 
+_CASE_RE = [
+    (re.compile(r"\bsteel\b",                 re.I), "steel"),
+    (re.compile(r"\baluminum\b|\baluminium\b", re.I), "aluminum"),
+]
+
+
+def detect_case_type(name: str) -> str:
+    """Infer case material from a product name.
+    Returns 'steel', 'aluminum', or 'brass' (default for unlabeled / nickel-plated / etc.)
+    """
+    for pattern, case_type in _CASE_RE:
+        if pattern.search(name):
+            return case_type
+    return "brass"
+
+
 # ── Scrapers ─────────────────────────────────────────────────────────────────
 
 def scrape_ammoseek() -> list[dict]:
@@ -117,13 +133,15 @@ def scrape_ammoseek() -> list[dict]:
             link_el = row.select_one("a[href]")
             retailer_el = row.select_one(".merchant, .retailer, td.store")
 
+            _name = name_el.get_text(strip=True) if name_el else row_text[:80]
             deals.append({
-                "source": "Ammoseek",
-                "retailer": retailer_el.get_text(strip=True) if retailer_el else "via Ammoseek",
-                "name": name_el.get_text(strip=True) if name_el else row_text[:80],
-                "cpr": cpr,
-                "url": link_el["href"] if link_el else url,
+                "source":    "Ammoseek",
+                "retailer":  retailer_el.get_text(strip=True) if retailer_el else "via Ammoseek",
+                "name":      _name,
+                "cpr":       cpr,
+                "url":       link_el["href"] if link_el else url,
                 "free_shipping": True,  # we filtered by fs=1
+                "case_type": detect_case_type(_name),
             })
 
         print(f"  [Ammoseek] {len(deals)} deal(s) found")
@@ -167,12 +185,13 @@ def scrape_reddit_gundeals() -> list[dict]:
                 continue
 
             deals.append({
-                "source": "Reddit r/gundeals",
-                "retailer": "r/gundeals",
-                "name": title,
-                "cpr": cpr,
-                "url": link_url,
+                "source":    "Reddit r/gundeals",
+                "retailer":  "r/gundeals",
+                "name":      title,
+                "cpr":       cpr,
+                "url":       link_url,
                 "free_shipping": True,
+                "case_type": detect_case_type(title),
             })
 
         print(f"  [Reddit r/gundeals] {len(deals)} deal(s) found")
@@ -213,12 +232,13 @@ def scrape_bulkammo() -> list[dict]:
                 href = "https://www.bulkammo.com" + href
 
             deals.append({
-                "source": "BulkAmmo.com",
-                "retailer": "BulkAmmo.com",
-                "name": name,
-                "cpr": cpr,
-                "url": href,
+                "source":    "BulkAmmo.com",
+                "retailer":  "BulkAmmo.com",
+                "name":      name,
+                "cpr":       cpr,
+                "url":       href,
                 "free_shipping": True,
+                "case_type": detect_case_type(name),
             })
 
         print(f"  [BulkAmmo] {len(deals)} deal(s) found")
@@ -261,12 +281,13 @@ def scrape_targetsports() -> list[dict]:
                 href = "https://www.targetsportsusa.com" + href
 
             deals.append({
-                "source": "TargetSportsUSA",
-                "retailer": "TargetSportsUSA",
-                "name": name,
-                "cpr": cpr,
-                "url": href,
+                "source":    "TargetSportsUSA",
+                "retailer":  "TargetSportsUSA",
+                "name":      name,
+                "cpr":       cpr,
+                "url":       href,
                 "free_shipping": True,
+                "case_type": detect_case_type(name),
             })
 
         print(f"  [TargetSportsUSA] {len(deals)} deal(s) found")
@@ -276,49 +297,64 @@ def scrape_targetsports() -> list[dict]:
 
 
 def scrape_midwayusa() -> list[dict]:
-    """MidwayUSA — 9mm Luger, sorted by price."""
+    """MidwayUSA — 9mm Luger via Algolia search API (bypasses Akamai bot protection).
+    Free shipping on orders >= $49; we check bulk case price to confirm eligibility."""
     deals = []
-    url = "https://www.midwayusa.com/ammo/handgun-ammo/9mm-luger?pageSize=96&sortby=price"
     try:
-        r = SESSION.get(url, timeout=20)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
+        from curl_cffi import requests as cf_requests
+    except ImportError:
+        print("  [MidwayUSA] curl_cffi not installed -- skipping")
+        return deals
 
-        products = soup.select(
-            ".product-list-item, .product-item, [data-product-id], .product-card"
+    ALGOLIA_APP_ID = "UQIWQHWTGQ"
+    ALGOLIA_API_KEY = "ba4f024807ab1f7f9d863f7d7ee61e7d"
+    ALGOLIA_INDEX   = "p_product_price_per_unit_asc"
+    url = f"https://{ALGOLIA_APP_ID}.algolia.net/1/indexes/{ALGOLIA_INDEX}/query"
+
+    try:
+        r = cf_requests.post(
+            url,
+            impersonate="chrome",
+            timeout=20,
+            headers={
+                "X-Algolia-Application-Id": ALGOLIA_APP_ID,
+                "X-Algolia-API-Key":        ALGOLIA_API_KEY,
+                "Content-Type":             "application/json",
+                "Referer":                  "https://www.midwayusa.com/",
+            },
+            json={
+                "query":        "",
+                "hitsPerPage":  100,
+                "facetFilters": [
+                    "Cartridge:9mm Luger",
+                    "categoryIds:691",       # Handgun Ammunition
+                    "Availability:In Stock",
+                ],
+                "numericFilters":        [f"retail.sortPricePerUnit <= {MAX_CPR}"],
+                "attributesToRetrieve":  ["name", "retail", "saleItemId"],
+            },
         )
-        for item in products:
-            name_el = item.select_one("h2, h3, .product-name, .product-title, [class*='title']")
-            price_el = item.select_one(".price, [class*='price']")
-            link_el = item.select_one("a[href]")
-            if not name_el:
+        r.raise_for_status()
+        for hit in r.json().get("hits", []):
+            retail = hit.get("retail", {})
+            cpr = retail.get("sortPricePerUnit") or (retail.get("pricePerUnit") or {}).get("low")
+            if not cpr or cpr > MAX_CPR:
                 continue
-
-            name = name_el.get_text(strip=True)
-            item_text = item.get_text(" ", strip=True)
-
-            cpr = parse_cpr(item_text)
-            if cpr is None and price_el:
-                cpr = compute_cpr(name, price_el.get_text())
-            if cpr is None or cpr > MAX_CPR:
+            # MidwayUSA ships free on orders >= $49; bulk case price covers that
+            bulk_price = (retail.get("ourPrice") or {}).get("high", 0)
+            if bulk_price < 49:
                 continue
-
-            if not has_free_shipping(item_text):
-                continue
-
-            href = link_el["href"] if link_el else url
-            if href.startswith("/"):
-                href = "https://www.midwayusa.com" + href
-
+            item_id = hit.get("saleItemId")
+            _mw_name = hit.get("name", "")
             deals.append({
-                "source": "MidwayUSA",
-                "retailer": "MidwayUSA",
-                "name": name,
-                "cpr": cpr,
-                "url": href,
+                "source":        "MidwayUSA",
+                "retailer":      "MidwayUSA",
+                "name":          _mw_name,
+                "cpr":           cpr,
+                "url":           f"https://www.midwayusa.com/product/{item_id}",
                 "free_shipping": True,
+                "case_type":     detect_case_type(_mw_name),
             })
-
         print(f"  [MidwayUSA] {len(deals)} deal(s) found")
     except Exception as e:
         print(f"  [MidwayUSA] Error: {e}")
@@ -354,12 +390,13 @@ def scrape_sgammo() -> list[dict]:
             href = link_el["href"] if link_el else url
 
             deals.append({
-                "source": "SGAmmo",
-                "retailer": "SGAmmo",
-                "name": name,
-                "cpr": cpr,
-                "url": href,
+                "source":    "SGAmmo",
+                "retailer":  "SGAmmo",
+                "name":      name,
+                "cpr":       cpr,
+                "url":       href,
                 "free_shipping": True,
+                "case_type": detect_case_type(name),
             })
 
         print(f"  [SGAmmo] {len(deals)} deal(s) found")
