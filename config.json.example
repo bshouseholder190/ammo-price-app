@@ -1,0 +1,7 @@
+{
+  "email": {
+    "sender": "bshouseholder@gmail.com",
+    "recipient": "bshouseholder@gmail.com",
+    "app_password": "YOUR_GMAIL_APP_PASSWORD_HERE"
+  }
+}
