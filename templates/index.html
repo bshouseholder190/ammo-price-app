@@ -134,6 +134,14 @@
         </div>
     </div>
 
+    <!-- Grain filter -->
+    <div id="grainFilter" class="d-none mb-3">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small fw-semibold text-muted me-1">Grain:</span>
+            <div id="grainBtns" class="d-flex gap-2 flex-wrap"></div>
+        </div>
+    </div>
+
     <!-- Results table -->
     <div id="resultsCard" class="d-none">
         <div class="card shadow-sm border-0">
@@ -187,6 +195,7 @@
 <script>
 let pollId   = null;
 let _allDeals = [];
+let _grainOptions = [];
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
@@ -326,16 +335,41 @@ function renderSources(st) {
 
 function renderResults(st) {
     const cf = document.getElementById("caseFilter");
+    const gf = document.getElementById("grainFilter");
     if (!st.finished_at) {
         document.getElementById("resultsCard").classList.add("d-none");
         document.getElementById("noDealsCard").classList.add("d-none");
         cf.classList.add("d-none");
+        gf.classList.add("d-none");
         return;
     }
     _allDeals = st.deals || [];
     updateFilterCounts(_allDeals);
+    buildGrainButtons(_allDeals);
     cf.classList.toggle("d-none", _allDeals.length === 0);
+    gf.classList.toggle("d-none", _allDeals.length === 0);
     applyFilters();
+}
+
+function buildGrainButtons(deals) {
+    const counts = {};
+    deals.forEach(d => {
+        const g = d.grain || "other";
+        counts[g] = (counts[g] || 0) + 1;
+    });
+    const sorted = Object.keys(counts).sort((a, b) => {
+        if (a === "other") return 1;
+        if (b === "other") return -1;
+        return parseInt(a) - parseInt(b);
+    });
+    const container = document.getElementById("grainBtns");
+    container.innerHTML = sorted.map(g => {
+        const label = g === "other" ? "Other" : g + "gr";
+        return `
+        <input type="checkbox" class="btn-check" id="gf_${g}" autocomplete="off" checked onchange="applyFilters()">
+        <label class="btn btn-sm btn-outline-secondary" for="gf_${g}">${label} (${counts[g]})</label>`;
+    }).join("");
+    _grainOptions = sorted;
 }
 
 function updateFilterCounts(deals) {
@@ -350,7 +384,11 @@ function applyFilters() {
     const rc = document.getElementById("resultsCard");
     const nd = document.getElementById("noDealsCard");
     const active = new Set(["brass","steel","aluminum"].filter(t => document.getElementById("cf_" + t)?.checked));
-    const filtered = _allDeals.filter(d => active.has(d.case_type || "brass"));
+    const activeGrain = new Set(_grainOptions.filter(g => document.getElementById("gf_" + g)?.checked));
+    const filtered = _allDeals.filter(d =>
+        active.has(d.case_type || "brass") &&
+        (activeGrain.size === 0 || activeGrain.has(d.grain || "other"))
+    );
 
     if (filtered.length > 0) {
         rc.classList.remove("d-none");
@@ -370,47 +408,4 @@ function applyFilters() {
                 <td>
                     <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer"
                        class="btn btn-sm btn-outline-primary py-0 px-2">Buy &rarr;</a>
-                </td>
-            </tr>`;
-        }).join("");
-    } else {
-        rc.classList.add("d-none");
-        nd.classList.remove("d-none");
-    }
-}
-
-function caseBadge(type) {
-    const cfg = { brass: ["#b8860b","Brass"], steel: ["#78909c","Steel"], aluminum: ["#039be5","Aluminum"] };
-    const [bg, label] = cfg[type] || cfg.brass;
-    return `<span class="badge" style="background:${bg}">${label}</span>`;
-}
-
-// ── Utils ─────────────────────────────────────────────────────────────────────
-function extractRounds(name) {
-    const m = name.match(/\b(\d{2,4})\s*(?:rounds?|rds?|ct|count)\b/i);
-    return m ? parseInt(m[1], 10) : null;
-}
-
-function setThresholdLabel(v) {
-    document.getElementById("thresholdLabel").textContent = "$" + parseFloat(v).toFixed(2) + " / round";
-}
-
-function fmtTime(iso) {
-    return iso ? new Date(iso).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "";
-}
-
-function esc(s) {
-    return String(s || "")
-        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function toast(msg, type = "success") {
-    const el = document.getElementById("appToast");
-    el.className = `toast border-0 text-bg-${type}`;
-    document.getElementById("toastMsg").textContent = msg;
-    bootstrap.Toast.getOrCreateInstance(el, {delay: 4500}).show();
-}
-</script>
-</body>
-</html>
+        

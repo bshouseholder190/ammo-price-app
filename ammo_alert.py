@@ -88,6 +88,14 @@ _CASE_RE = [
 ]
 
 
+def detect_grain(name: str) -> str:
+    """Extract grain weight from a product name, e.g. '115gr', '124 grain', '147GR'.
+    Returns the grain string (e.g. '115') or 'other' if not found.
+    """
+    m = re.search(r"\b(\d{2,3})\s*(?:gr(?:ain)?s?)\b", name, re.I)
+    return m.group(1) if m else "other"
+
+
 def detect_case_type(name: str) -> str:
     """Infer case material from a product name.
     Returns 'steel', 'aluminum', or 'brass' (default for unlabeled / nickel-plated / etc.)
@@ -142,6 +150,7 @@ def scrape_ammoseek() -> list[dict]:
                 "url":       link_el["href"] if link_el else url,
                 "free_shipping": True,  # we filtered by fs=1
                 "case_type": detect_case_type(_name),
+                "grain":     detect_grain(_name),
             })
 
         print(f"  [Ammoseek] {len(deals)} deal(s) found")
@@ -192,6 +201,7 @@ def scrape_reddit_gundeals() -> list[dict]:
                 "url":       link_url,
                 "free_shipping": True,
                 "case_type": detect_case_type(title),
+                "grain":     detect_grain(title),
             })
 
         print(f"  [Reddit r/gundeals] {len(deals)} deal(s) found")
@@ -239,6 +249,7 @@ def scrape_bulkammo() -> list[dict]:
                 "url":       href,
                 "free_shipping": True,
                 "case_type": detect_case_type(name),
+                "grain":     detect_grain(name),
             })
 
         print(f"  [BulkAmmo] {len(deals)} deal(s) found")
@@ -288,6 +299,7 @@ def scrape_targetsports() -> list[dict]:
                 "url":       href,
                 "free_shipping": True,
                 "case_type": detect_case_type(name),
+                "grain":     detect_grain(name),
             })
 
         print(f"  [TargetSportsUSA] {len(deals)} deal(s) found")
@@ -354,6 +366,7 @@ def scrape_midwayusa() -> list[dict]:
                 "url":           f"https://www.midwayusa.com/product/{item_id}",
                 "free_shipping": True,
                 "case_type":     detect_case_type(_mw_name),
+                "grain":         detect_grain(_mw_name),
             })
         print(f"  [MidwayUSA] {len(deals)} deal(s) found")
     except Exception as e:
@@ -397,6 +410,7 @@ def scrape_sgammo() -> list[dict]:
                 "url":       href,
                 "free_shipping": True,
                 "case_type": detect_case_type(name),
+                "grain":     detect_grain(name),
             })
 
         print(f"  [SGAmmo] {len(deals)} deal(s) found")
@@ -511,18 +525,4 @@ def main() -> None:
         return
 
     # Print summary table
-    print(f"\n{'Source':<20} {'CPR':>6}  {'Product'}")
-    print("-" * 55)
-    for d in sorted(all_deals, key=lambda x: x["cpr"]):
-        print(f"{d['source']:<20} ${d['cpr']:.3f}  {d['name'][:40]}")
-
-    if args.test:
-        print("\n[--test mode] Email not sent.")
-        return
-
-    print("\nSending email...")
-    send_email(all_deals, config)
-
-
-if __name__ == "__main__":
-    main()
+    print(f"\n{'Source':<20} 
