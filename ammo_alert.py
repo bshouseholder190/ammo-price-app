@@ -525,4 +525,18 @@ def main() -> None:
         return
 
     # Print summary table
-    print(f"\n{'Source':<20} 
+    print(f"\n{'Source':<20} {'CPR':>6}  {'Product'}")
+    print("-" * 55)
+    for d in sorted(all_deals, key=lambda x: x["cpr"]):
+        print(f"{d['source']:<20} ${d['cpr']:.3f}  {d['name'][:40]}")
+
+    if args.test:
+        print("\n[--test mode] Email not sent.")
+        return
+
+    print("\nSending email...")
+    send_email(all_deals, config)
+
+
+if __name__ == "__main__":
+    main()
